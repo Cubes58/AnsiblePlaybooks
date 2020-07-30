@@ -1,0 +1,98 @@
+# file: Install.yml
+---
+- hosts: all
+  become: true
+  tasks:
+    - name: Check if Duo sources file exists
+      stat:
+        path: /etc/apt/sources.list.d/duosecurity.list
+      register: duoseclist
+
+    - name: Add Duo to sources
+      shell: |
+        echo "deb https://pkg.duosecurity.com/Ubuntu precise main" >> /etc/apt/sources.list.d/duosecurity.list
+        curl -s https://duo.com/DUO-GPG-PUBLIC-KEY.asc | sudo apt-key add -
+      when: duoseclist.stat.exists == False
+
+    - name: Update apt package list
+      apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+  
+    - name: Install Duo from APT
+      apt: 
+        name: duo-unix 
+
+    - name: Add integration key from vault
+      lineinfile:
+        path: /etc/duo/pam_duo.conf
+        regexp: '^ikey ='
+        line: "ikey = {{ ikey }}"
+  
+    - name: Add secret key from vault 
+      lineinfile:
+        path: /etc/duo/pam_duo.conf
+        regexp: '^skey ='
+        line: "skey = {{ skey }}"
+    
+    - name: Add hostname from vault  
+      lineinfile:
+        path: /etc/duo/pam_duo.conf
+        regexp: '^host ='
+        line: "host = {{ host }}"
+    
+    - name: Enable auto push
+      lineinfile:
+        path: /etc/duo/pam_duo.conf
+        line: "autopush = yes"
+
+    - name: Set prompts to 1
+      lineinfile:
+        path: /etc/duo/pam_duo.conf
+        line: "prompts = 1"
+
+    - name: Configure PAM sshd module
+      blockinfile:
+        path: /etc/pam.d/sshd
+        insertafter: "@include common-auth"
+        block: |
+          auth [success=1 default=ignore] /lib64/security/pam_duo.so
+          auth requisite pam_deny.so
+          auth required pam_permit.so
+          auth [success=1 default=ignore] pam_access.so
+
+    - name: Remove password auth
+      lineinfile:
+        path: /etc/pam.d/sshd
+        regex: '^@include common-auth'
+        password: "#@include common-auth"
+
+    - name: Add ACLS to bypass Duo 2FA for AWX
+      blockinfile:
+        path: /etc/security/access.conf
+        block: |
+          + : ALL 192.168.100.199
+          + : ALL : LOCAL
+          - : ALL : ALL
+
+    - name: Enable PAM for SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^UsePAM '
+        line: "UsePAM yes"
+
+    - name: Enable challenge response auth
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^ChallengeResponseAuthentication '
+        line: "ChallengeResponseAuthentication yes"
+
+    - name: Dsiable DNS
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^UseDNS '
+        line: "UseDNS no"
+
+    - name: Enable PAM Auth method
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regex: '^AuthenticationMethods '
+        line: "AuthenticationMethods publickey,keyboard-interactive"

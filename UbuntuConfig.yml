@@ -1,0 +1,74 @@
+# file: Install.yml
+---
+- hosts: all
+  vars:
+    common_packages: [ 'neofetch','tmux','htop','git','automake','stow','zsh','curl','vim' ]
+    i3_packages: [ 'libxcb1-dev','libxcb-keysyms1-dev','libpango1.0-dev','libxcb-util0-dev','libxcb-icccm4-dev','libyajl-dev','libstartup-notification0-dev','libxcb-randr0-dev','libev-dev','libxcb-cursor-dev','libxcb-xinerama0-dev','libxcb-xkb-dev','libxkbcommon-dev','libxkbcommon-x11-dev','autoconf','libxcb-xrm0','libxcb-xrm-dev','libxcb-shape0-dev','i3status','i3lock','suckless-tools','rofi' ]
+  tasks:
+    - name: Install common packages
+      become: yes
+      apt: name={{ common_packages }} state=latest
+
+    - name: Install i3-Gaps packages
+      become: yes
+      apt: name={{ i3_packages }} state=latest
+
+    - name: Clone i3-gaps
+      git: 
+        repo: https://github.com/Airblader/i3.git
+        dest: /tmp/i3-gaps
+
+    - name: Compile & install i3-gaps
+      become: yes
+      shell: |
+        cd /tmp/i3-gaps
+        autoreconf --force --install
+        rm -rf build/
+        mkdir -p build && cd build
+        sudo ../configure --prefix=/usr --sysconfdir=/etc --disable-sanitizers
+        sudo make
+        sudo make install
+
+    - name: Install oh-my-zsh
+      shell: sh -c "$(curl -fsSL https://gist.githubusercontent.com/DJCoombes/fe53caf0696e92cbbc69a0c3222bc41d/raw/7cb764dfe9252776d904dd5d6e57010de6e9c661/oh-my-zsh-install.sh)" "" --unattended
+    - name: Clone fzf
+      git:
+        repo: https://github.com/junegunn/fzf.git
+        dest: ~/.fzf
+
+    - name: Install fzf
+      shell: ~/.fzf/install --all
+
+    - name: Change shell to ZSH
+      become: yes
+      shell: sudo chsh -s $(which zsh) 
+
+    - name: Clone ZSH theme
+      git:
+        repo: https://github.com/denysdovhan/spaceship-prompt.git
+        dest: ~/.oh-my-zsh/custom/themes/spaceship-prompt
+
+    - name: Symlink the ZSH theme
+      file:
+        src: '~/.oh-my-zsh/custom/themes/spaceship-prompt/spaceship.zsh-theme'
+        dest: '~/.oh-my-zsh/custom/themes/spaceship.zsh-theme'
+        state: link
+
+    - name: Clone Dotfiles
+      git:
+        repo: https://github.com/DJCoombes/Dotfiles.git
+        dest: ~/Dotfiles
+
+    - name: Install Vundle
+      git:
+        repo: https://github.com/VundleVim/Vundle.vim.git
+        dest: ~/.vim/bundle/Vundle.vim
+
+    - name: Stow Dotfiles
+      shell: |
+        cd ~/Dotfiles
+        stow i3
+        stow vim
+        rm ~/.zshrc
+        stow zsh
+        echo | echo | vim +PluginInstall +qall &>/dev/null
